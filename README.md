@@ -14,9 +14,21 @@ Ctrl+0 ajustar · Ctrl+1 100% · Ctrl+C/Ctrl+V.
 
 ## Instalar
 
+Baixe o `recorta-<versão>-linux-x86_64.tar.gz` em [Releases](https://github.com/1155dosilicon/recorta/releases/latest) e rode:
+
 ```sh
-cargo build --release -j10
-install -m755 target/release/recorta ~/.local/bin/
-install -Dm644 assets/recorta.svg ~/.local/share/icons/hicolor/scalable/apps/recorta.svg
-install -Dm644 assets/recorta.desktop ~/.local/share/applications/recorta.desktop
+tar xzf recorta-*-linux-x86_64.tar.gz
+sh recorta-*-linux-x86_64/instalar.sh
+```
+
+Instala em `~/.local/bin/recorta`, com ícone e atalho no menu (sem root). O binário roda em qualquer
+Linux x86_64 com glibc 2.31 ou mais nova (Ubuntu 20.04+, Debian 11+, Mint 20+, Fedora, Arch…),
+em X11 ou Wayland, com OpenGL (qualquer driver, inclusive o Mesa por software).
+
+## Compilar
+
+```sh
+cargo build --release
+sh instalar.sh             # instala o binário de target/release
+sh scripts/release.sh      # pacote portátil em dist/ (compila no Ubuntu 20.04 via podman)
 ```

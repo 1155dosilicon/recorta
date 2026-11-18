@@ -8,7 +8,9 @@ repository = "https://github.com/1155dosilicon/recorta"
 readme = "README.md"
 
 [dependencies]
-eframe = "0.37.0"
+eframe = { version = "0.37.0", default-features = false, features = ["accesskit", "clipboard", "default_fonts", "system_fonts", "glow", "wayland", "x11"] }
+# símbolos (📂 💾 ✂ ⟲ →) embutidos; sem isso dependem das fontes do sistema
+egui = { version = "0.37.0", default-features = false, features = ["monochrome_emoji_fonts"] }
 fast_image_resize = { version = "6.1.0", features = ["image", "rayon"] }
 image = { version = "0.25.10", default-features = false, features = ["rayon", "bmp", "dds", "exr", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp"] }
 rayon = "1.12.0"
