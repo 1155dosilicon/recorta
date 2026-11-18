@@ -14,6 +14,14 @@ Ctrl+0 ajustar · Ctrl+1 100% · Ctrl+C/Ctrl+V.
 
 ## Instalar
 
+### Windows 10/11
+
+Baixe o **`Recorta.exe`** em [Releases](https://github.com/1155dosilicon/recorta/releases/latest) e abra. É um
+programa portátil: não precisa instalar nem de DLLs extras. Para abrir imagens com duplo clique, use
+"Abrir com → Escolher outro aplicativo" e aponte para o `Recorta.exe`.
+
+### Linux
+
 Baixe o `recorta-<versão>-linux-x86_64.tar.gz` em [Releases](https://github.com/1155dosilicon/recorta/releases/latest) e rode:
 
 ```sh
@@ -25,10 +33,13 @@ Instala em `~/.local/bin/recorta`, com ícone e atalho no menu (sem root). O bin
 Linux x86_64 com glibc 2.31 ou mais nova (Ubuntu 20.04+, Debian 11+, Mint 20+, Fedora, Arch…),
 em X11 ou Wayland, com OpenGL (qualquer driver, inclusive o Mesa por software).
 
+O backend gráfico pode ser forçado com `RECORTA_RENDERER=glow` (OpenGL) ou, no Windows,
+`RECORTA_RENDERER=wgpu` (DirectX 12/Vulkan, o padrão lá; se falhar, o programa reabre sozinho em OpenGL).
+
 ## Compilar
 
 ```sh
 cargo build --release
 sh instalar.sh             # instala o binário de target/release
-sh scripts/release.sh      # pacote portátil em dist/ (compila no Ubuntu 20.04 via podman)
+sh scripts/release.sh      # dist/: pacote Linux (Ubuntu 20.04) + Recorta.exe (MinGW), via podman
 ```

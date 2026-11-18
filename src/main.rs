@@ -1,6 +1,9 @@
 //! Recorta — editor simples de imagens: recortar com proporções, redimensionar
 //! (esticar/achatar) e mudar a escala com reamostragem de qualidade.
 
+// no Windows, sem a janela preta de console atrás do programa
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 mod ops;
 
 use std::path::{Path, PathBuf};
@@ -38,9 +41,54 @@ fn main() -> eframe::Result {
             rgba: icone.into_raw(),
         });
     }
-    let opcoes = eframe::NativeOptions { viewport, ..Default::default() };
-    eframe::run_native("recorta", opcoes, Box::new(move |cc| Ok(Box::new(App::new(cc, arquivo)))))
+    let forcado = std::env::var(VAR_RENDERER).ok();
+    let renderer = match forcado.as_deref() {
+        Some("glow") => eframe::Renderer::Glow,
+        #[cfg(windows)]
+        Some("wgpu") => eframe::Renderer::Wgpu,
+        _ => RENDERER_PADRAO,
+    };
+    let opcoes = eframe::NativeOptions { viewport, renderer, ..Default::default() };
+    let resultado =
+        eframe::run_native("recorta", opcoes, Box::new(move |cc| Ok(Box::new(App::new(cc, arquivo)))));
+
+    if let Err(erro) = &resultado {
+        // A janela não abriu (driver de vídeo sem suporte ao backend). O winit não deixa
+        // recriar o loop de eventos no mesmo processo, então reabre o programa com OpenGL.
+        #[cfg(windows)]
+        if forcado.is_none()
+            && let Ok(exe) = std::env::current_exe()
+            && let Ok(status) = std::process::Command::new(exe)
+                .args(std::env::args_os().skip(1))
+                .env(VAR_RENDERER, "glow")
+                .status()
+        {
+            std::process::exit(status.code().unwrap_or(1));
+        }
+        let msg = format!(
+            "O Recorta não conseguiu abrir a janela:\n\n{erro}\n\n\
+             Verifique se o driver de vídeo está instalado (é preciso OpenGL 2.0 ou mais novo)."
+        );
+        eprintln!("{msg}");
+        // no Windows não há console (windows_subsystem); mostra uma caixa de mensagem
+        #[cfg(windows)]
+        rfd::MessageDialog::new()
+            .set_level(rfd::MessageLevel::Error)
+            .set_title("Recorta")
+            .set_description(msg)
+            .show();
+    }
+    resultado
 }
+
+/// Variável de ambiente para forçar o backend gráfico: `glow` (OpenGL) ou `wgpu` (só Windows).
+const VAR_RENDERER: &str = "RECORTA_RENDERER";
+/// Windows: wgpu (DirectX 12, com fallback por software). Linux: OpenGL, que funciona
+/// até com drivers Mesa antigos.
+#[cfg(windows)]
+const RENDERER_PADRAO: eframe::Renderer = eframe::Renderer::Wgpu;
+#[cfg(not(windows))]
+const RENDERER_PADRAO: eframe::Renderer = eframe::Renderer::Glow;
 
 // ---------------------------------------------------------------------------
 // Estado
@@ -248,7 +296,7 @@ impl App {
             doc.desfazer.remove(0);
         }
         let (w, h) = doc.tam();
-        self.status = format!("{descricao}: {w0} × {h0} → {w} × {h}");
+        self.status = format!("{descricao}: {w0} × {h0} ➡ {w} × {h}");
         self.imagem_mudou();
     }
 
@@ -539,8 +587,15 @@ impl App {
                     egui::Event::PasteImage(ci) => self.colar_imagem(&ci),
                     egui::Event::Paste(texto) => {
                         // texto colado que é um caminho de arquivo (ex.: copiado do Thunar)
-                        let linha = texto.lines().next().unwrap_or("").trim();
+                        // ou "Copiar como caminho" do Explorer, que vem entre aspas
+                        let linha = texto.lines().next().unwrap_or("").trim().trim_matches('"');
                         let caminho = linha.strip_prefix("file://").map(decodificar_url).unwrap_or(linha.to_string());
+                        // file:///C:/foto.png ➡ C:/foto.png
+                        #[cfg(windows)]
+                        let caminho = match caminho.strip_prefix('/') {
+                            Some(r) if r.as_bytes().get(1) == Some(&b':') => r.to_string(),
+                            _ => caminho,
+                        };
                         let p = PathBuf::from(caminho);
                         if p.is_file() {
                             self.abrir(&p);
@@ -644,9 +699,9 @@ impl App {
                     self.aplicar(img.rotate90(), "Girar 90° horário".into());
                 } else if ui.button("180°").clicked() {
                     self.aplicar(img.rotate180(), "Girar 180°".into());
-                } else if ui.button("⇆ Espelhar").on_hover_text("Horizontal").clicked() {
+                } else if ui.button("↔ Espelhar").on_hover_text("Horizontal").clicked() {
                     self.aplicar(img.fliph(), "Espelhar horizontal".into());
-                } else if ui.button("⇅ Inverter").on_hover_text("Vertical").clicked() {
+                } else if ui.button("↕ Inverter").on_hover_text("Vertical").clicked() {
                     self.aplicar(img.flipv(), "Espelhar vertical".into());
                 }
             });
@@ -696,7 +751,7 @@ impl App {
             let gira = !matches!(self.proporcao, Proporcao::Livre | Proporcao::Original);
             if ui
                 .add_enabled(gira, egui::Button::new("↻ Girar proporção"))
-                .on_hover_text("Troca deitado ↔ em pé (ex.: 16:9 → 9:16)")
+                .on_hover_text("Troca deitado ↔ em pé (ex.: 16:9 ➡ 9:16)")
                 .clicked()
             {
                 self.proporcao = match self.proporcao {
@@ -824,7 +879,7 @@ impl App {
     }
 
     fn painel_escala(&mut self, ui: &mut egui::Ui, iw: u32, ih: u32) {
-        ui.label("Muda a resolução mantendo a proporção. Ex.: 20×20 → 500×500 (2500%).");
+        ui.label("Muda a resolução mantendo a proporção. Ex.: 20×20 ➡ 500×500 (2500%).");
         ui.add_space(4.0);
         let mut pct = self.escala * 100.0;
         ui.horizontal(|ui| {
