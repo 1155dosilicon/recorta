@@ -117,12 +117,22 @@ pub fn salvar(img: &DynamicImage, caminho: &Path, qualidade_jpeg: u8) -> Result<
     let formato = ImageFormat::from_path(caminho)
         .map_err(|_| "extensão desconhecida (use .png, .jpg, .webp…)".to_string())?;
     let bytes = codificar(img, formato, qualidade_jpeg)?;
-    let tmp = caminho.with_extension(format!(
+    // se o destino é um link simbólico, grava no arquivo para onde ele aponta
+    // (o rename trocaria o link por um arquivo comum)
+    let destino = std::fs::canonicalize(caminho).unwrap_or_else(|_| caminho.to_path_buf());
+    let tmp = destino.with_extension(format!(
         "{}.recorta-tmp",
-        caminho.extension().and_then(|e| e.to_str()).unwrap_or("img")
+        destino.extension().and_then(|e| e.to_str()).unwrap_or("img")
     ));
-    std::fs::write(&tmp, &bytes).map_err(|e| format!("não consegui gravar: {e}"))?;
-    std::fs::rename(&tmp, caminho).map_err(|e| {
+    let gravar = || -> std::io::Result<()> {
+        std::fs::write(&tmp, &bytes)?;
+        // mantém as permissões do arquivo que está sendo substituído
+        if let Ok(meta) = std::fs::metadata(&destino) {
+            std::fs::set_permissions(&tmp, meta.permissions())?;
+        }
+        std::fs::rename(&tmp, &destino)
+    };
+    gravar().map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
         format!("não consegui gravar: {e}")
     })
@@ -258,16 +268,30 @@ fn mapear_rgb(img: &mut Rgba32FImage, f: fn(f32) -> f32) {
 }
 
 /// Máscara de nitidez (unsharp mask): realça o que o filtro suavizou.
+///
+/// O desfoque é feito com alfa pré-multiplicado: o RGB "escondido" dos pixels
+/// transparentes (geralmente preto) não pode vazar para a borda do que é
+/// visível, senão aparece um halo claro/escuro em volta de recortes e ícones.
 fn nitidez(img: &DynamicImage, quantidade: f32, sigma: f32) -> DynamicImage {
     let orig = img.to_rgba32f();
-    let borrada = image::imageops::fast_blur(&orig, sigma);
+    let mut pre = orig.clone();
+    pre.par_chunks_mut(4).for_each(|p| {
+        for c in 0..3 {
+            p[c] *= p[3];
+        }
+    });
+    let borrada = image::imageops::fast_blur(&pre, sigma);
     let mut saida = orig.clone();
     saida
         .par_chunks_mut(4)
         .zip(orig.par_chunks(4).zip(borrada.par_chunks(4)))
         .for_each(|(d, (o, b))| {
+            if b[3] <= f32::EPSILON {
+                return; // vizinhança toda transparente: nada a realçar
+            }
             for c in 0..3 {
-                d[c] = (o[c] + quantidade * (o[c] - b[c])).clamp(0.0, 1.0);
+                let media = b[c] / b[3];
+                d[c] = (o[c] + quantidade * (o[c] - media)).clamp(0.0, 1.0);
             }
         });
     DynamicImage::ImageRgba32F(saida)
@@ -411,6 +435,40 @@ mod testes {
         // vizinho do pixel (1,1) acima-direita fica branco; o canto junto à diagonal fica preto
         assert_eq!(r.get_pixel(2, 1).0, [0, 0, 0, 255]);
         assert_eq!(scale3x(&img).dimensions(), (9, 9));
+    }
+
+    #[test]
+    fn nitidez_nao_cria_halo_na_borda_transparente() {
+        // cinza opaco à esquerda, transparente (RGB preto) à direita
+        let img = DynamicImage::ImageRgba8(image::RgbaImage::from_fn(40, 10, |x, _| {
+            if x < 20 { image::Rgba([128, 128, 128, 255]) } else { image::Rgba([0, 0, 0, 0]) }
+        }));
+        let r = nitidez(&img, 1.5, 3.0).to_rgba8();
+        for x in 0..20 {
+            let p = r.get_pixel(x, 5).0;
+            assert!(p[0].abs_diff(128) <= 1, "x={x}: {p:?}");
+            assert_eq!(p[3], 255);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn salvar_mantem_link_simbolico_e_permissoes() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("recorta-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let real = dir.join("real.png");
+        let link = dir.join("link.png");
+        salvar(&xadrez(4, 4), &real, 90).unwrap();
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o640)).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        salvar(&xadrez(8, 3), &link, 90).unwrap();
+
+        assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        assert_eq!(abrir(&real).unwrap().width(), 8);
+        assert_eq!(std::fs::metadata(&real).unwrap().permissions().mode() & 0o777, 0o640);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

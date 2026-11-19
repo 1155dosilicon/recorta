@@ -22,7 +22,7 @@ podman run --rm -v "$PWD":/src:ro,Z -v "$C/target":/target:Z -v "$C/cargo":/carg
 
 rm -rf "dist/${N:?}" "dist/$N.tar.gz" "dist/$N.tar.gz.sha256"
 mkdir -p "dist/$N"
-cp "$C/target/release/recorta" instalar.sh README.md LICENSE assets/recorta.svg assets/recorta.desktop "dist/$N/"
+cp "$C/target/release/recorta" instalar.sh README.md LICENSE assets/recorta.svg assets/recorta-64.png assets/recorta.desktop "dist/$N/"
 (cd dist && tar czf "$N.tar.gz" "$N" && sha256sum "$N.tar.gz" > "$N.tar.gz.sha256")
 # --- Windows -----------------------------------------------------------------
 mkdir -p "$C/target-win"

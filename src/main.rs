@@ -29,8 +29,11 @@ fn main() -> eframe::Result {
     let arquivo = arg.map(PathBuf::from);
 
     let mut viewport = egui::ViewportBuilder::default()
-        .with_title("Recorta")
+        // Wayland: liga a janela ao recorta.desktop. No X11 vira WM_CLASS ("", "recorta"):
+        // o eframe sempre define um app_id e o egui-winit deixa a instância vazia; os
+        // painéis casam pela classe, que bate com o StartupWMClass do atalho.
         .with_app_id("recorta")
+        .with_title("Recorta")
         .with_inner_size([1280.0, 820.0])
         .with_min_inner_size([820.0, 520.0]);
     if let Ok(icone) = image::load_from_memory(include_bytes!("../assets/recorta-64.png")) {
@@ -258,6 +261,11 @@ impl App {
     }
 
     fn novo_doc(&mut self, img: DynamicImage, caminho: Option<PathBuf>) {
+        // operação em andamento era da imagem anterior: descarta o resultado
+        // (a thread termina sozinha; o envio falha porque o receptor sumiu)
+        if let Some(t) = self.tarefa.take() {
+            self.status = format!("{} cancelado.", t.descricao);
+        }
         self.doc = Some(Doc {
             img: Arc::new(img),
             caminho,
@@ -1468,16 +1476,21 @@ fn tamanho_legivel(b: u64) -> String {
     }
 }
 
+/// Decodifica `%XX` de uma URL `file://`. Trabalha em bytes: fatiar a `&str`
+/// em `i+1..i+3` daria panic se um `%` viesse antes de um caractere acentuado.
 fn decodificar_url(s: &str) -> String {
+    fn hex(b: u8) -> Option<u8> {
+        (b as char).to_digit(16).map(|d| d as u8)
+    }
     let bytes = s.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%'
-            && i + 2 < bytes.len()
-            && let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16)
+            && let (Some(&a), Some(&b)) = (bytes.get(i + 1), bytes.get(i + 2))
+            && let (Some(a), Some(b)) = (hex(a), hex(b))
         {
-            out.push(v);
+            out.push(a << 4 | b);
             i += 3;
             continue;
         }
@@ -1516,5 +1529,15 @@ mod testes {
         assert_eq!(proporcao_txt(1366, 768), "≈16:9");
         assert_eq!(proporcao_txt(20, 20), "1:1");
         assert_eq!(decodificar_url("/tmp/a%20b.png"), "/tmp/a b.png");
+        assert_eq!(decodificar_url("/tmp/a%C3%A7%C3%A3o.png"), "/tmp/ação.png");
+    }
+
+    #[test]
+    fn url_com_porcento_solto_nao_quebra() {
+        // antes: panic ao fatiar a string no meio do "€" / "é"
+        assert_eq!(decodificar_url("/tmp/50%€.png"), "/tmp/50%€.png");
+        assert_eq!(decodificar_url("/tmp/%aé.png"), "/tmp/%aé.png");
+        assert_eq!(decodificar_url("/tmp/100%"), "/tmp/100%");
+        assert_eq!(decodificar_url("/tmp/%zz%4"), "/tmp/%zz%4");
     }
 }

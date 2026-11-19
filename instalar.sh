@@ -15,18 +15,28 @@ fi
 [ -f "$ORIGEM" ] || { echo "binário 'recorta' não encontrado (compile com: cargo build --release)" >&2; exit 1; }
 [ -d assets ] && A=assets || A=.
 
-mkdir -p "$BIN" "$DADOS/applications" "$DADOS/icons/hicolor/scalable/apps"
+ICONES="$DADOS/icons/hicolor"
+mkdir -p "$BIN" "$DADOS/applications" "$ICONES/scalable/apps" "$ICONES/64x64/apps"
 # instala num nome temporário e renomeia: funciona mesmo com o Recorta aberto
 install -m755 "$ORIGEM" "$BIN/.recorta.novo"
 mv -f "$BIN/.recorta.novo" "$BIN/recorta"
-install -m644 "$A/recorta.svg" "$DADOS/icons/hicolor/scalable/apps/recorta.svg"
+install -m644 "$A/recorta.svg" "$ICONES/scalable/apps/recorta.svg"
+# PNG de reserva para painéis/temas que não desenham SVG
+[ -f "$A/recorta-64.png" ] && install -m644 "$A/recorta-64.png" "$ICONES/64x64/apps/recorta.png"
 # caminho completo no Exec: o menu e o gerenciador de arquivos costumam rodar com um
 # PATH sem ~/.local/bin, e aí o Whisker esconde o atalho e o "Abrir com" falha
 sed "s|^Exec=recorta |Exec=$BIN/recorta |" "$A/recorta.desktop" > "$DADOS/applications/recorta.desktop"
 chmod 644 "$DADOS/applications/recorta.desktop"
 
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q "$DADOS/applications" || true
-command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -q -t "$DADOS/icons/hicolor" 2>/dev/null || true
+# O GTK só compara a data do icon-theme.cache com a da pasta hicolor/ (não das
+# subpastas). Se já existe um cache de outro programa, o ícone novo fica invisível
+# no menu até o cache ser refeito. Atualiza a data da pasta (invalida o cache
+# antigo mesmo sem gtk-update-icon-cache) e refaz o cache se der.
+touch "$ICONES"
+if [ -f "$ICONES/icon-theme.cache" ] || [ -f "$ICONES/index.theme" ]; then
+    command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -q -f -t "$ICONES" 2>/dev/null || true
+fi
 
 echo "Recorta instalado em $BIN/recorta"
 case ":$PATH:" in
