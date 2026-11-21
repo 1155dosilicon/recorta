@@ -467,6 +467,11 @@ impl App {
 
     fn colar_imagem(&mut self, ci: &ColorImage) {
         let [w, h] = ci.size;
+        if w == 0 || h == 0 {
+            // o resto do programa supõe pelo menos 1×1 (ex.: `iw - 1` na seleção)
+            self.status = "A área de transferência tem uma imagem vazia.".into();
+            return;
+        }
         let bytes: Vec<u8> = ci
             .pixels
             .iter()

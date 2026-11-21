@@ -101,15 +101,34 @@ impl Default for Opcoes {
 // ---------------------------------------------------------------------------
 // Abrir / salvar
 
+/// Maior imagem decodificada que `abrir` aceita (4 GiB: 400 MP em RGBA 16 bits
+/// cabem). O cabeçalho diz o tamanho antes de alocar; sem esse teto, um
+/// arquivo de poucos bytes dizendo 100000×100000 aborta o programa por falta
+/// de memória e leva junto a edição que não foi salva.
+const LIMITE_ABRIR_BYTES: u64 = 4 << 30;
+
 pub fn abrir(caminho: &Path) -> Result<DynamicImage, String> {
     let mut leitor = ImageReader::open(caminho)
         .map_err(|e| format!("não consegui abrir: {e}"))?
         .with_guessed_format()
         .map_err(|e| format!("não consegui ler: {e}"))?;
+    // os limites do `image` (512 MiB, e alguns decodificadores ignoram) barrariam
+    // fotos grandes legítimas; o teto de verdade é o teste abaixo, que vale para todos
     leitor.no_limits();
     let mut dec = leitor
         .into_decoder()
         .map_err(|e| format!("formato não suportado: {e}"))?;
+    let (w, h) = dec.dimensions();
+    if w == 0 || h == 0 {
+        return Err(format!("imagem vazia ({w} × {h} px)"));
+    }
+    if dec.total_bytes() > LIMITE_ABRIR_BYTES {
+        return Err(format!(
+            "imagem grande demais ({w} × {h} px, {} MiB; limite {} MiB)",
+            dec.total_bytes() >> 20,
+            LIMITE_ABRIR_BYTES >> 20
+        ));
+    }
     let orientacao = dec.orientation().unwrap_or(Orientation::NoTransforms);
     let mut img = DynamicImage::from_decoder(dec).map_err(|e| format!("imagem inválida: {e}"))?;
     // fotos de celular guardam a rotação no EXIF; aplica para mostrar "em pé"
@@ -555,6 +574,36 @@ mod testes {
             0o640
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Farbfeld só com cabeçalho: "farbfeld" + largura + altura (u32 big-endian).
+    fn cabecalho_farbfeld(nome: &str, w: u32, h: u32) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("recorta-ff-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut bytes = b"farbfeld".to_vec();
+        bytes.extend_from_slice(&w.to_be_bytes());
+        bytes.extend_from_slice(&h.to_be_bytes());
+        let p = dir.join(nome);
+        std::fs::write(&p, bytes).unwrap();
+        p
+    }
+
+    #[test]
+    fn abrir_recusa_cabecalho_gigante_sem_alocar() {
+        // antes: tentava alocar 80 GB e o processo abortava
+        let p = cabecalho_farbfeld("gigante.ff", 100_000, 100_000);
+        let erro = abrir(&p).unwrap_err();
+        assert!(erro.contains("grande demais"), "{erro}");
+        std::fs::remove_file(p).unwrap();
+    }
+
+    #[test]
+    fn abrir_recusa_imagem_vazia() {
+        // antes: abria 0×0 e a seleção de recorte fazia `iw - 1` com iw = 0
+        let p = cabecalho_farbfeld("vazia.ff", 0, 0);
+        let erro = abrir(&p).unwrap_err();
+        assert!(erro.contains("vazia"), "{erro}");
+        std::fs::remove_file(p).unwrap();
     }
 
     #[test]
