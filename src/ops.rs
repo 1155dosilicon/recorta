@@ -90,7 +90,11 @@ pub struct Opcoes {
 
 impl Default for Opcoes {
     fn default() -> Self {
-        Opcoes { metodo: Metodo::Lanczos3, linear: false, nitidez: 0.0 }
+        Opcoes {
+            metodo: Metodo::Lanczos3,
+            linear: false,
+            nitidez: 0.0,
+        }
     }
 }
 
@@ -103,7 +107,9 @@ pub fn abrir(caminho: &Path) -> Result<DynamicImage, String> {
         .with_guessed_format()
         .map_err(|e| format!("não consegui ler: {e}"))?;
     leitor.no_limits();
-    let mut dec = leitor.into_decoder().map_err(|e| format!("formato não suportado: {e}"))?;
+    let mut dec = leitor
+        .into_decoder()
+        .map_err(|e| format!("formato não suportado: {e}"))?;
     let orientacao = dec.orientation().unwrap_or(Orientation::NoTransforms);
     let mut img = DynamicImage::from_decoder(dec).map_err(|e| format!("imagem inválida: {e}"))?;
     // fotos de celular guardam a rotação no EXIF; aplica para mostrar "em pé"
@@ -122,7 +128,10 @@ pub fn salvar(img: &DynamicImage, caminho: &Path, qualidade_jpeg: u8) -> Result<
     let destino = std::fs::canonicalize(caminho).unwrap_or_else(|_| caminho.to_path_buf());
     let tmp = destino.with_extension(format!(
         "{}.recorta-tmp",
-        destino.extension().and_then(|e| e.to_str()).unwrap_or("img")
+        destino
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("img")
     ));
     let gravar = || -> std::io::Result<()> {
         std::fs::write(&tmp, &bytes)?;
@@ -138,11 +147,18 @@ pub fn salvar(img: &DynamicImage, caminho: &Path, qualidade_jpeg: u8) -> Result<
     })
 }
 
-fn codificar(img: &DynamicImage, formato: ImageFormat, qualidade_jpeg: u8) -> Result<Vec<u8>, String> {
+fn codificar(
+    img: &DynamicImage,
+    formato: ImageFormat,
+    qualidade_jpeg: u8,
+) -> Result<Vec<u8>, String> {
     let mut saida = Cursor::new(Vec::new());
     if formato == ImageFormat::Jpeg {
         let rgb = achatar_em_branco(img);
-        let enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut saida, qualidade_jpeg.clamp(1, 100));
+        let enc = image::codecs::jpeg::JpegEncoder::new_with_quality(
+            &mut saida,
+            qualidade_jpeg.clamp(1, 100),
+        );
         rgb.write_with_encoder(enc).map_err(|e| e.to_string())?;
         return Ok(saida.into_inner());
     }
@@ -159,7 +175,9 @@ fn codificar(img: &DynamicImage, formato: ImageFormat, qualidade_jpeg: u8) -> Re
                 DynamicImage::ImageRgb8(img.to_rgb8())
             };
             let mut saida = Cursor::new(Vec::new());
-            convertida.write_to(&mut saida, formato).map_err(|e| e.to_string())?;
+            convertida
+                .write_to(&mut saida, formato)
+                .map_err(|e| e.to_string())?;
             Ok(saida.into_inner())
         }
     }
@@ -187,7 +205,12 @@ fn achatar_em_branco(img: &DynamicImage) -> DynamicImage {
 /// Reamostra para exatamente `largura`×`altura`. Se a proporção mudar, a
 /// imagem estica/achata (isso é "redimensionar"); "escala" é só chamar com
 /// as duas medidas multiplicadas pelo mesmo fator.
-pub fn redimensionar(img: &DynamicImage, largura: u32, altura: u32, op: Opcoes) -> Result<DynamicImage, String> {
+pub fn redimensionar(
+    img: &DynamicImage,
+    largura: u32,
+    altura: u32,
+    op: Opcoes,
+) -> Result<DynamicImage, String> {
     if largura == 0 || altura == 0 {
         return Err("tamanho precisa ser pelo menos 1×1".into());
     }
@@ -200,7 +223,8 @@ pub fn redimensionar(img: &DynamicImage, largura: u32, altura: u32, op: Opcoes) 
         m if op.linear => {
             let mut f = img.to_rgba32f();
             mapear_rgb(&mut f, srgb_para_linear);
-            let mut r = reamostrar(&DynamicImage::ImageRgba32F(f), largura, altura, m.alg())?.into_rgba32f();
+            let mut r = reamostrar(&DynamicImage::ImageRgba32F(f), largura, altura, m.alg())?
+                .into_rgba32f();
             mapear_rgb(&mut r, linear_para_srgb);
             DynamicImage::ImageRgba32F(r)
         }
@@ -215,7 +239,12 @@ pub fn redimensionar(img: &DynamicImage, largura: u32, altura: u32, op: Opcoes) 
     Ok(para_tipo(saida, tipo))
 }
 
-fn reamostrar(img: &DynamicImage, largura: u32, altura: u32, alg: fr::ResizeAlg) -> Result<DynamicImage, String> {
+fn reamostrar(
+    img: &DynamicImage,
+    largura: u32,
+    altura: u32,
+    alg: fr::ResizeAlg,
+) -> Result<DynamicImage, String> {
     let opcoes = fr::ResizeOptions::new().resize_alg(alg);
     let mut resizer = fr::Resizer::new();
     let mut destino = DynamicImage::new(largura, altura, img.color());
@@ -225,7 +254,9 @@ fn reamostrar(img: &DynamicImage, largura: u32, altura: u32, alg: fr::ResizeAlg)
             // tipo de pixel que a biblioteca não aceita: passa por RGBA 32F
             let src = DynamicImage::ImageRgba32F(img.to_rgba32f());
             let mut destino = DynamicImage::new(largura, altura, ColorType::Rgba32F);
-            resizer.resize(&src, &mut destino, &opcoes).map_err(|e| e.to_string())?;
+            resizer
+                .resize(&src, &mut destino, &opcoes)
+                .map_err(|e| e.to_string())?;
             Ok(destino)
         }
     }
@@ -251,12 +282,20 @@ fn para_tipo(img: DynamicImage, tipo: ColorType) -> DynamicImage {
 }
 
 fn srgb_para_linear(c: f32) -> f32 {
-    if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
 }
 
 fn linear_para_srgb(c: f32) -> f32 {
     let c = c.clamp(0.0, 1.0);
-    if c <= 0.003_130_8 { c * 12.92 } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 }
+    if c <= 0.003_130_8 {
+        c * 12.92
+    } else {
+        1.055 * c.powf(1.0 / 2.4) - 0.055
+    }
 }
 
 fn mapear_rgb(img: &mut Rgba32FImage, f: fn(f32) -> f32) {
@@ -332,7 +371,10 @@ type Px = [u8; 4];
 
 fn vizinhos(src: &image::RgbaImage) -> impl Fn(i64, i64) -> Px + '_ {
     let (w, h) = (src.width() as i64, src.height() as i64);
-    move |x, y| src.get_pixel(x.clamp(0, w - 1) as u32, y.clamp(0, h - 1) as u32).0
+    move |x, y| {
+        src.get_pixel(x.clamp(0, w - 1) as u32, y.clamp(0, h - 1) as u32)
+            .0
+    }
 }
 
 fn scale2x(src: &image::RgbaImage) -> image::RgbaImage {
@@ -372,16 +414,36 @@ fn scale3x(src: &image::RgbaImage) -> image::RgbaImage {
             let mut o = [e; 9];
             if b != hh && d != f {
                 o[0] = if d == b { d } else { e };
-                o[1] = if (d == b && e != c) || (b == f && e != a) { b } else { e };
+                o[1] = if (d == b && e != c) || (b == f && e != a) {
+                    b
+                } else {
+                    e
+                };
                 o[2] = if b == f { f } else { e };
-                o[3] = if (d == b && e != g) || (d == hh && e != a) { d } else { e };
-                o[5] = if (b == f && e != i) || (hh == f && e != c) { f } else { e };
+                o[3] = if (d == b && e != g) || (d == hh && e != a) {
+                    d
+                } else {
+                    e
+                };
+                o[5] = if (b == f && e != i) || (hh == f && e != c) {
+                    f
+                } else {
+                    e
+                };
                 o[6] = if d == hh { d } else { e };
-                o[7] = if (d == hh && e != i) || (hh == f && e != g) { hh } else { e };
+                o[7] = if (d == hh && e != i) || (hh == f && e != g) {
+                    hh
+                } else {
+                    e
+                };
                 o[8] = if hh == f { f } else { e };
             }
             for (k, v) in o.iter().enumerate() {
-                out.put_pixel(x as u32 * 3 + (k % 3) as u32, y as u32 * 3 + (k / 3) as u32, image::Rgba(*v));
+                out.put_pixel(
+                    x as u32 * 3 + (k % 3) as u32,
+                    y as u32 * 3 + (k / 3) as u32,
+                    image::Rgba(*v),
+                );
             }
         }
     }
@@ -396,7 +458,11 @@ mod testes {
 
     fn xadrez(w: u32, h: u32) -> DynamicImage {
         DynamicImage::ImageRgba8(image::RgbaImage::from_fn(w, h, |x, y| {
-            if (x + y) % 2 == 0 { image::Rgba([255, 0, 0, 255]) } else { image::Rgba([0, 0, 255, 128]) }
+            if (x + y) % 2 == 0 {
+                image::Rgba([255, 0, 0, 255])
+            } else {
+                image::Rgba([0, 0, 255, 128])
+            }
         }))
     }
 
@@ -405,7 +471,11 @@ mod testes {
         let img = xadrez(20, 20);
         for m in Metodo::TODOS {
             for linear in [false, true] {
-                let op = Opcoes { metodo: m, linear, nitidez: 0.5 };
+                let op = Opcoes {
+                    metodo: m,
+                    linear,
+                    nitidez: 0.5,
+                };
                 let r = redimensionar(&img, 500, 500, op).unwrap();
                 assert_eq!((r.width(), r.height()), (500, 500), "{m:?}");
                 assert_eq!(r.color(), ColorType::Rgba8);
@@ -417,7 +487,11 @@ mod testes {
 
     #[test]
     fn mantem_16_bits() {
-        let img = DynamicImage::ImageRgb16(image::ImageBuffer::from_pixel(10, 10, image::Rgb([1000u16, 2000, 60000])));
+        let img = DynamicImage::ImageRgb16(image::ImageBuffer::from_pixel(
+            10,
+            10,
+            image::Rgb([1000u16, 2000, 60000]),
+        ));
         let r = redimensionar(&img, 37, 5, Opcoes::default()).unwrap();
         assert_eq!(r.color(), ColorType::Rgb16);
         assert_eq!(r.as_rgb16().unwrap().get_pixel(3, 3).0, [1000, 2000, 60000]);
@@ -441,7 +515,11 @@ mod testes {
     fn nitidez_nao_cria_halo_na_borda_transparente() {
         // cinza opaco à esquerda, transparente (RGB preto) à direita
         let img = DynamicImage::ImageRgba8(image::RgbaImage::from_fn(40, 10, |x, _| {
-            if x < 20 { image::Rgba([128, 128, 128, 255]) } else { image::Rgba([0, 0, 0, 0]) }
+            if x < 20 {
+                image::Rgba([128, 128, 128, 255])
+            } else {
+                image::Rgba([0, 0, 0, 0])
+            }
         }));
         let r = nitidez(&img, 1.5, 3.0).to_rgba8();
         for x in 0..20 {
@@ -465,9 +543,17 @@ mod testes {
 
         salvar(&xadrez(8, 3), &link, 90).unwrap();
 
-        assert!(std::fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
         assert_eq!(abrir(&real).unwrap().width(), 8);
-        assert_eq!(std::fs::metadata(&real).unwrap().permissions().mode() & 0o777, 0o640);
+        assert_eq!(
+            std::fs::metadata(&real).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

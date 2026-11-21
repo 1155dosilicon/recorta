@@ -11,8 +11,8 @@ use std::sync::{Arc, mpsc};
 use std::time::Instant;
 
 use eframe::egui::{
-    self, Color32, ColorImage, CornerRadius, CursorIcon, Key, KeyboardShortcut, Modifiers, Pos2, Rect,
-    Sense, Stroke, StrokeKind, TextureHandle, TextureOptions, Vec2, pos2, vec2,
+    self, Color32, ColorImage, CornerRadius, CursorIcon, Key, KeyboardShortcut, Modifiers, Pos2,
+    Rect, Sense, Stroke, StrokeKind, TextureHandle, TextureOptions, Vec2, pos2, vec2,
 };
 use image::DynamicImage;
 use ops::{Metodo, Opcoes};
@@ -51,9 +51,16 @@ fn main() -> eframe::Result {
         Some("wgpu") => eframe::Renderer::Wgpu,
         _ => RENDERER_PADRAO,
     };
-    let opcoes = eframe::NativeOptions { viewport, renderer, ..Default::default() };
-    let resultado =
-        eframe::run_native("recorta", opcoes, Box::new(move |cc| Ok(Box::new(App::new(cc, arquivo)))));
+    let opcoes = eframe::NativeOptions {
+        viewport,
+        renderer,
+        ..Default::default()
+    };
+    let resultado = eframe::run_native(
+        "recorta",
+        opcoes,
+        Box::new(move |cc| Ok(Box::new(App::new(cc, arquivo)))),
+    );
 
     if let Err(erro) = &resultado {
         // A janela não abriu (driver de vídeo sem suporte ao backend). O winit não deixa
@@ -217,7 +224,8 @@ struct App {
 impl App {
     fn new(cc: &eframe::CreationContext<'_>, arquivo: Option<PathBuf>) -> Self {
         cc.egui_ctx.set_theme(egui::Theme::Dark);
-        cc.egui_ctx.all_styles_mut(|s| s.interaction.selectable_labels = false);
+        cc.egui_ctx
+            .all_styles_mut(|s| s.interaction.selectable_labels = false);
         let mut app = App {
             doc: None,
             textura: None,
@@ -236,7 +244,8 @@ impl App {
             escala: 2.0,
             opcoes: Opcoes::default(),
             qualidade_jpeg: 95,
-            status: "Abra uma imagem: Ctrl+O, arraste um arquivo para a janela ou cole com Ctrl+V.".into(),
+            status: "Abra uma imagem: Ctrl+O, arraste um arquivo para a janela ou cole com Ctrl+V."
+                .into(),
             tarefa: None,
             confirmar_fechar: false,
             pode_fechar: false,
@@ -299,7 +308,9 @@ impl App {
         doc.refazer.clear();
         doc.modificado = true;
         // limita a memória do histórico, mas sempre deixa ao menos 1 passo
-        let bytes = |v: &Vec<(Arc<DynamicImage>, String)>| v.iter().map(|(i, _)| i.as_bytes().len()).sum::<usize>();
+        let bytes = |v: &Vec<(Arc<DynamicImage>, String)>| {
+            v.iter().map(|(i, _)| i.as_bytes().len()).sum::<usize>()
+        };
         while doc.desfazer.len() > 1 && bytes(&doc.desfazer) > LIMITE_DESFAZER_BYTES {
             doc.desfazer.remove(0);
         }
@@ -310,7 +321,9 @@ impl App {
 
     fn desfazer(&mut self) {
         let Some(doc) = &mut self.doc else { return };
-        let Some((img, desc)) = doc.desfazer.pop() else { return };
+        let Some((img, desc)) = doc.desfazer.pop() else {
+            return;
+        };
         let atual = std::mem::replace(&mut doc.img, img);
         doc.refazer.push((atual, desc.clone()));
         doc.modificado = true;
@@ -320,7 +333,9 @@ impl App {
 
     fn refazer(&mut self) {
         let Some(doc) = &mut self.doc else { return };
-        let Some((img, desc)) = doc.refazer.pop() else { return };
+        let Some((img, desc)) = doc.refazer.pop() else {
+            return;
+        };
         let atual = std::mem::replace(&mut doc.img, img);
         doc.desfazer.push((atual, desc.clone()));
         doc.modificado = true;
@@ -347,7 +362,11 @@ impl App {
             ctx.request_repaint();
         });
         self.status = format!("{descricao}…");
-        self.tarefa = Some(Tarefa { rx, descricao, inicio: Instant::now() });
+        self.tarefa = Some(Tarefa {
+            rx,
+            descricao,
+            inicio: Instant::now(),
+        });
     }
 
     fn checar_tarefa(&mut self) {
@@ -355,7 +374,9 @@ impl App {
         let resultado = match t.rx.try_recv() {
             Ok(r) => r,
             Err(mpsc::TryRecvError::Empty) => return,
-            Err(mpsc::TryRecvError::Disconnected) => Err("a operação travou (falta de memória?)".into()),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                Err("a operação travou (falta de memória?)".into())
+            }
         };
         let t = self.tarefa.take().expect("tarefa existe");
         match resultado {
@@ -420,7 +441,12 @@ impl App {
             .set_title("Abrir imagem")
             .add_filter("Imagens", ops::EXTENSOES_ABRIR)
             .add_filter("Todos os arquivos", &["*"]);
-        if let Some(dir) = self.doc.as_ref().and_then(|d| d.caminho.as_ref()).and_then(|p| p.parent()) {
+        if let Some(dir) = self
+            .doc
+            .as_ref()
+            .and_then(|d| d.caminho.as_ref())
+            .and_then(|p| p.parent())
+        {
             dlg = dlg.set_directory(dir);
         }
         if let Some(p) = dlg.pick_file() {
@@ -431,14 +457,21 @@ impl App {
     fn copiar(&mut self, ctx: &egui::Context) {
         let Some(doc) = &self.doc else { return };
         let rgba = doc.img.to_rgba8();
-        let ci = ColorImage::from_rgba_unmultiplied([rgba.width() as usize, rgba.height() as usize], &rgba);
+        let ci = ColorImage::from_rgba_unmultiplied(
+            [rgba.width() as usize, rgba.height() as usize],
+            &rgba,
+        );
         ctx.copy_image(ci);
         self.status = "Imagem copiada para a área de transferência.".into();
     }
 
     fn colar_imagem(&mut self, ci: &ColorImage) {
         let [w, h] = ci.size;
-        let bytes: Vec<u8> = ci.pixels.iter().flat_map(|c| c.to_srgba_unmultiplied()).collect();
+        let bytes: Vec<u8> = ci
+            .pixels
+            .iter()
+            .flat_map(|c| c.to_srgba_unmultiplied())
+            .collect();
         if let Some(img) = image::RgbaImage::from_raw(w as u32, h as u32, bytes) {
             self.novo_doc(DynamicImage::ImageRgba8(img), None);
             self.status = format!("Imagem colada ({w} × {h}). Use \"Salvar como\" para gravar.");
@@ -450,7 +483,10 @@ impl App {
     fn razao(&self) -> Option<f32> {
         match self.proporcao {
             Proporcao::Livre => None,
-            Proporcao::Original => self.doc.as_ref().map(|d| d.img.width() as f32 / d.img.height() as f32),
+            Proporcao::Original => self
+                .doc
+                .as_ref()
+                .map(|d| d.img.width() as f32 / d.img.height() as f32),
             Proporcao::Fixa(a, b) => Some(a as f32 / b as f32),
             Proporcao::Personalizada => {
                 let (a, b) = self.personalizada;
@@ -488,9 +524,13 @@ impl App {
 
     /// Maior retângulo centrado com a proporção atual, dentro de `dentro`.
     fn encaixar_proporcao(&mut self) {
-        let Some((iw, ih)) = self.doc.as_ref().map(Doc::tam) else { return };
+        let Some((iw, ih)) = self.doc.as_ref().map(Doc::tam) else {
+            return;
+        };
         let Some(r) = self.razao() else { return };
-        let base = self.sel.unwrap_or(Rect::from_min_size(Pos2::ZERO, vec2(iw as f32, ih as f32)));
+        let base = self
+            .sel
+            .unwrap_or(Rect::from_min_size(Pos2::ZERO, vec2(iw as f32, ih as f32)));
         let base = if base.width() < 2.0 || base.height() < 2.0 {
             Rect::from_min_size(Pos2::ZERO, vec2(iw as f32, ih as f32))
         } else {
@@ -505,7 +545,9 @@ impl App {
     }
 
     fn aplicar_recorte(&mut self) {
-        let Some((x, y, w, h)) = self.sel_final() else { return };
+        let Some((x, y, w, h)) = self.sel_final() else {
+            return;
+        };
         let Some(doc) = &self.doc else { return };
         if (w, h) == doc.tam() {
             self.status = "A seleção é a imagem inteira; nada para recortar.".into();
@@ -516,7 +558,9 @@ impl App {
     }
 
     fn atualizar_arrasto(&mut self, p: Pos2) {
-        let Some((iw, ih)) = self.doc.as_ref().map(Doc::tam) else { return };
+        let Some((iw, ih)) = self.doc.as_ref().map(Doc::tam) else {
+            return;
+        };
         let limites = vec2(iw as f32, ih as f32);
         let razao = self.razao();
         let p = pos2(p.x.clamp(0.0, limites.x), p.y.clamp(0.0, limites.y));
@@ -531,7 +575,9 @@ impl App {
                 );
                 Rect::from_min_size(min, s.size())
             }
-            Some(Arrasto::Alca { alca, inicial }) => arrastar_alca(alca, inicial, p, razao, limites),
+            Some(Arrasto::Alca { alca, inicial }) => {
+                arrastar_alca(alca, inicial, p, razao, limites)
+            }
             None => return,
         };
         self.sel = Some(nova);
@@ -543,18 +589,19 @@ impl App {
         let atalho = |m, k| KeyboardShortcut::new(m, k);
         let cmd = Modifiers::COMMAND;
         let cmd_shift = Modifiers::COMMAND | Modifiers::SHIFT;
-        let (abrir, salvar_como, salvar, refazer, refazer2, desfazer, ajustar, cem) = ctx.input_mut(|i| {
-            (
-                i.consume_shortcut(&atalho(cmd, Key::O)),
-                i.consume_shortcut(&atalho(cmd_shift, Key::S)),
-                i.consume_shortcut(&atalho(cmd, Key::S)),
-                i.consume_shortcut(&atalho(cmd_shift, Key::Z)),
-                i.consume_shortcut(&atalho(cmd, Key::Y)),
-                i.consume_shortcut(&atalho(cmd, Key::Z)),
-                i.consume_shortcut(&atalho(cmd, Key::Num0)),
-                i.consume_shortcut(&atalho(cmd, Key::Num1)),
-            )
-        });
+        let (abrir, salvar_como, salvar, refazer, refazer2, desfazer, ajustar, cem) = ctx
+            .input_mut(|i| {
+                (
+                    i.consume_shortcut(&atalho(cmd, Key::O)),
+                    i.consume_shortcut(&atalho(cmd_shift, Key::S)),
+                    i.consume_shortcut(&atalho(cmd, Key::S)),
+                    i.consume_shortcut(&atalho(cmd_shift, Key::Z)),
+                    i.consume_shortcut(&atalho(cmd, Key::Y)),
+                    i.consume_shortcut(&atalho(cmd, Key::Z)),
+                    i.consume_shortcut(&atalho(cmd, Key::Num0)),
+                    i.consume_shortcut(&atalho(cmd, Key::Num1)),
+                )
+            });
         if abrir {
             self.dialogo_abrir();
         }
@@ -597,7 +644,10 @@ impl App {
                         // texto colado que é um caminho de arquivo (ex.: copiado do Thunar)
                         // ou "Copiar como caminho" do Explorer, que vem entre aspas
                         let linha = texto.lines().next().unwrap_or("").trim().trim_matches('"');
-                        let caminho = linha.strip_prefix("file://").map(decodificar_url).unwrap_or(linha.to_string());
+                        let caminho = linha
+                            .strip_prefix("file://")
+                            .map(decodificar_url)
+                            .unwrap_or(linha.to_string());
                         // file:///C:/foto.png ➡ C:/foto.png
                         #[cfg(windows)]
                         let caminho = match caminho.strip_prefix('/') {
@@ -614,7 +664,14 @@ impl App {
             }
         }
 
-        let soltos: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).filter(|p| !p.as_os_str().is_empty()).collect());
+        let soltos: Vec<PathBuf> = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .map(|f| f.path().to_path_buf())
+                .filter(|p| !p.as_os_str().is_empty())
+                .collect()
+        });
         if let Some(p) = soltos.first() {
             self.abrir(p);
         }
@@ -628,10 +685,18 @@ impl App {
                 self.dialogo_abrir();
             }
             let tem = self.doc.is_some();
-            if ui.add_enabled(tem, egui::Button::new("💾 Salvar")).on_hover_text("Ctrl+S").clicked() {
+            if ui
+                .add_enabled(tem, egui::Button::new("💾 Salvar"))
+                .on_hover_text("Ctrl+S")
+                .clicked()
+            {
                 self.salvar(false);
             }
-            if ui.add_enabled(tem, egui::Button::new("Salvar como…")).on_hover_text("Ctrl+Shift+S").clicked() {
+            if ui
+                .add_enabled(tem, egui::Button::new("Salvar como…"))
+                .on_hover_text("Ctrl+Shift+S")
+                .clicked()
+            {
                 self.salvar(true);
             }
         });
@@ -641,9 +706,15 @@ impl App {
                 .as_ref()
                 .map(|d| (!d.desfazer.is_empty(), !d.refazer.is_empty()))
                 .unwrap_or_default();
-            let dica_desfazer = self.doc.as_ref().and_then(|d| d.desfazer.last()).map(|(_, s)| s.clone());
+            let dica_desfazer = self
+                .doc
+                .as_ref()
+                .and_then(|d| d.desfazer.last())
+                .map(|(_, s)| s.clone());
             let r = ui.add_enabled(pode_desfazer && !ocupado, egui::Button::new("⟲ Desfazer"));
-            if r.on_hover_text(format!("Ctrl+Z  {}", dica_desfazer.unwrap_or_default())).clicked() {
+            if r.on_hover_text(format!("Ctrl+Z  {}", dica_desfazer.unwrap_or_default()))
+                .clicked()
+            {
                 self.desfazer();
             }
             if ui
@@ -659,12 +730,18 @@ impl App {
             ui.separator();
             ui.label("Nenhuma imagem aberta.");
             ui.add_space(4.0);
-            ui.weak("Formatos: PNG, JPEG, WebP, GIF, BMP, TIFF, TGA, ICO, QOI, PNM, DDS, EXR, HDR.");
+            ui.weak(
+                "Formatos: PNG, JPEG, WebP, GIF, BMP, TIFF, TGA, ICO, QOI, PNM, DDS, EXR, HDR.",
+            );
             return;
         };
         let (iw, ih) = doc.tam();
         ui.separator();
-        ui.label(egui::RichText::new(format!("{iw} × {ih} px")).strong().size(16.0));
+        ui.label(
+            egui::RichText::new(format!("{iw} × {ih} px"))
+                .strong()
+                .size(16.0),
+        );
         ui.weak(format!(
             "proporção {} · {:.2} MP · {}",
             proporcao_txt(iw, ih),
@@ -707,7 +784,11 @@ impl App {
                     self.aplicar(img.rotate90(), "Girar 90° horário".into());
                 } else if ui.button("180°").clicked() {
                     self.aplicar(img.rotate180(), "Girar 180°".into());
-                } else if ui.button("↔ Espelhar").on_hover_text("Horizontal").clicked() {
+                } else if ui
+                    .button("↔ Espelhar")
+                    .on_hover_text("Horizontal")
+                    .clicked()
+                {
                     self.aplicar(img.fliph(), "Espelhar horizontal".into());
                 } else if ui.button("↕ Inverter").on_hover_text("Vertical").clicked() {
                     self.aplicar(img.flipv(), "Espelhar vertical".into());
@@ -738,18 +819,30 @@ impl App {
                     Proporcao::Fixa(a, b) => format!("{a}:{b}"),
                     _ => "?".into(),
                 });
-            egui::ComboBox::from_id_salt("proporcao").selected_text(atual).width(170.0).height(500.0).show_ui(ui, |ui| {
-                for (nome, p) in PROPORCOES {
-                    ui.selectable_value(&mut self.proporcao, *p, *nome);
-                }
-            });
+            egui::ComboBox::from_id_salt("proporcao")
+                .selected_text(atual)
+                .width(170.0)
+                .height(500.0)
+                .show_ui(ui, |ui| {
+                    for (nome, p) in PROPORCOES {
+                        ui.selectable_value(&mut self.proporcao, *p, *nome);
+                    }
+                });
         });
         if self.proporcao == Proporcao::Personalizada {
             ui.horizontal(|ui| {
                 ui.label("   ");
-                let a = ui.add(egui::DragValue::new(&mut self.personalizada.0).range(0.01..=10000.0).speed(0.1));
+                let a = ui.add(
+                    egui::DragValue::new(&mut self.personalizada.0)
+                        .range(0.01..=10000.0)
+                        .speed(0.1),
+                );
                 ui.label(":");
-                let b = ui.add(egui::DragValue::new(&mut self.personalizada.1).range(0.01..=10000.0).speed(0.1));
+                let b = ui.add(
+                    egui::DragValue::new(&mut self.personalizada.1)
+                        .range(0.01..=10000.0)
+                        .speed(0.1),
+                );
                 if a.changed() || b.changed() {
                     self.encaixar_proporcao();
                 }
@@ -783,18 +876,21 @@ impl App {
         ui.add_space(6.0);
         if let Some((x, y, w, h)) = self.sel_final() {
             let (mut nx, mut ny, mut nw, mut nh) = (x, y, w, h);
-            egui::Grid::new("sel").num_columns(4).spacing([6.0, 4.0]).show(ui, |ui| {
-                ui.label("X");
-                ui.add(egui::DragValue::new(&mut nx).range(0..=iw - 1));
-                ui.label("Largura");
-                ui.add(egui::DragValue::new(&mut nw).range(1..=iw));
-                ui.end_row();
-                ui.label("Y");
-                ui.add(egui::DragValue::new(&mut ny).range(0..=ih - 1));
-                ui.label("Altura");
-                ui.add(egui::DragValue::new(&mut nh).range(1..=ih));
-                ui.end_row();
-            });
+            egui::Grid::new("sel")
+                .num_columns(4)
+                .spacing([6.0, 4.0])
+                .show(ui, |ui| {
+                    ui.label("X");
+                    ui.add(egui::DragValue::new(&mut nx).range(0..=iw - 1));
+                    ui.label("Largura");
+                    ui.add(egui::DragValue::new(&mut nw).range(1..=iw));
+                    ui.end_row();
+                    ui.label("Y");
+                    ui.add(egui::DragValue::new(&mut ny).range(0..=ih - 1));
+                    ui.label("Altura");
+                    ui.add(egui::DragValue::new(&mut nh).range(1..=ih));
+                    ui.end_row();
+                });
             if (nx, ny, nw, nh) != (x, y, w, h) {
                 let r = self.razao();
                 let (mut fw, mut fh) = (nw as f32, nh as f32);
@@ -822,7 +918,11 @@ impl App {
             ui.weak(format!("Resultado: {w} × {h} px ({})", proporcao_txt(w, h)));
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                if ui.button("✔ Aplicar recorte").on_hover_text("Enter ou duplo clique na seleção").clicked() {
+                if ui
+                    .button("✔ Aplicar recorte")
+                    .on_hover_text("Enter ou duplo clique na seleção")
+                    .clicked()
+                {
                     self.aplicar_recorte();
                 }
                 if ui.button("Cancelar").on_hover_text("Esc").clicked() {
@@ -835,17 +935,30 @@ impl App {
     }
 
     fn painel_redimensionar(&mut self, ui: &mut egui::Ui, iw: u32, ih: u32) {
-        ui.label("Define largura e altura livres. Se a proporção mudar, a imagem estica ou achata.");
+        ui.label(
+            "Define largura e altura livres. Se a proporção mudar, a imagem estica ou achata.",
+        );
         ui.add_space(4.0);
         let (w0, h0) = (self.largura, self.altura);
-        egui::Grid::new("redim").num_columns(3).spacing([6.0, 4.0]).show(ui, |ui| {
-            ui.label("Largura");
-            ui.add(egui::DragValue::new(&mut self.largura).range(1..=65535).suffix(" px"));
-            ui.end_row();
-            ui.label("Altura");
-            ui.add(egui::DragValue::new(&mut self.altura).range(1..=65535).suffix(" px"));
-            ui.end_row();
-        });
+        egui::Grid::new("redim")
+            .num_columns(3)
+            .spacing([6.0, 4.0])
+            .show(ui, |ui| {
+                ui.label("Largura");
+                ui.add(
+                    egui::DragValue::new(&mut self.largura)
+                        .range(1..=65535)
+                        .suffix(" px"),
+                );
+                ui.end_row();
+                ui.label("Altura");
+                ui.add(
+                    egui::DragValue::new(&mut self.altura)
+                        .range(1..=65535)
+                        .suffix(" px"),
+                );
+                ui.end_row();
+            });
         if self.manter_proporcao {
             let r = iw as f64 / ih as f64;
             if self.largura != w0 {
@@ -857,15 +970,18 @@ impl App {
         ui.checkbox(&mut self.manter_proporcao, "Manter proporção");
         ui.horizontal(|ui| {
             ui.label("Tamanhos comuns");
-            egui::ComboBox::from_id_salt("tamanhos").selected_text("escolher…").height(500.0).show_ui(ui, |ui| {
-                for (nome, w, h) in TAMANHOS_COMUNS {
-                    if ui.selectable_label(false, *nome).clicked() {
-                        self.largura = *w;
-                        self.altura = *h;
-                        self.manter_proporcao = false;
+            egui::ComboBox::from_id_salt("tamanhos")
+                .selected_text("escolher…")
+                .height(500.0)
+                .show_ui(ui, |ui| {
+                    for (nome, w, h) in TAMANHOS_COMUNS {
+                        if ui.selectable_label(false, *nome).clicked() {
+                            self.largura = *w;
+                            self.altura = *h;
+                            self.manter_proporcao = false;
+                        }
                     }
-                }
-            });
+                });
             if ui.button("Original").clicked() {
                 self.largura = iw;
                 self.altura = ih;
@@ -880,8 +996,19 @@ impl App {
         ui.add_space(4.0);
         ui.label(format!("Resultado: {w} × {h} px ({})", proporcao_txt(w, h)));
         if (r_antes / r_depois - 1.0).abs() > 0.005 {
-            let como = if r_depois > r_antes { "esticada na horizontal (achatada)" } else { "esticada na vertical (afinada)" };
-            ui.colored_label(Color32::from_rgb(240, 190, 90), format!("⚠ Proporção muda de {} para {}: imagem {como}.", proporcao_txt(iw, ih), proporcao_txt(w, h)));
+            let como = if r_depois > r_antes {
+                "esticada na horizontal (achatada)"
+            } else {
+                "esticada na vertical (afinada)"
+            };
+            ui.colored_label(
+                Color32::from_rgb(240, 190, 90),
+                format!(
+                    "⚠ Proporção muda de {} para {}: imagem {como}.",
+                    proporcao_txt(iw, ih),
+                    proporcao_txt(w, h)
+                ),
+            );
         }
         self.botao_reamostrar(ui, iw, ih, w, h, "Redimensionar");
     }
@@ -893,33 +1020,59 @@ impl App {
         ui.horizontal(|ui| {
             ui.label("Escala");
             if ui
-                .add(egui::DragValue::new(&mut pct).range(0.1..=10000.0).speed(1.0).suffix(" %").max_decimals(2))
+                .add(
+                    egui::DragValue::new(&mut pct)
+                        .range(0.1..=10000.0)
+                        .speed(1.0)
+                        .suffix(" %")
+                        .max_decimals(2),
+                )
                 .changed()
             {
                 self.escala = pct / 100.0;
             }
         });
         ui.horizontal_wrapped(|ui| {
-            for (rot, f) in [("25%", 0.25), ("50%", 0.5), ("2x", 2.0), ("3x", 3.0), ("4x", 4.0), ("8x", 8.0), ("10x", 10.0)] {
-                if ui.selectable_label((self.escala - f).abs() < 1e-9, rot).clicked() {
+            for (rot, f) in [
+                ("25%", 0.25),
+                ("50%", 0.5),
+                ("2x", 2.0),
+                ("3x", 3.0),
+                ("4x", 4.0),
+                ("8x", 8.0),
+                ("10x", 10.0),
+            ] {
+                if ui
+                    .selectable_label((self.escala - f).abs() < 1e-9, rot)
+                    .clicked()
+                {
                     self.escala = f;
                 }
             }
         });
         let mut w = ((iw as f64 * self.escala).round() as u32).max(1);
         let mut h = ((ih as f64 * self.escala).round() as u32).max(1);
-        egui::Grid::new("escala").num_columns(2).spacing([6.0, 4.0]).show(ui, |ui| {
-            ui.label("ou largura");
-            if ui.add(egui::DragValue::new(&mut w).range(1..=65535).suffix(" px")).changed() {
-                self.escala = w as f64 / iw as f64;
-            }
-            ui.end_row();
-            ui.label("ou altura");
-            if ui.add(egui::DragValue::new(&mut h).range(1..=65535).suffix(" px")).changed() {
-                self.escala = h as f64 / ih as f64;
-            }
-            ui.end_row();
-        });
+        egui::Grid::new("escala")
+            .num_columns(2)
+            .spacing([6.0, 4.0])
+            .show(ui, |ui| {
+                ui.label("ou largura");
+                if ui
+                    .add(egui::DragValue::new(&mut w).range(1..=65535).suffix(" px"))
+                    .changed()
+                {
+                    self.escala = w as f64 / iw as f64;
+                }
+                ui.end_row();
+                ui.label("ou altura");
+                if ui
+                    .add(egui::DragValue::new(&mut h).range(1..=65535).suffix(" px"))
+                    .changed()
+                {
+                    self.escala = h as f64 / ih as f64;
+                }
+                ui.end_row();
+            });
         let w = ((iw as f64 * self.escala).round() as u32).max(1);
         let h = ((ih as f64 * self.escala).round() as u32).max(1);
         ui.add_space(4.0);
@@ -932,15 +1085,22 @@ impl App {
     fn ui_metodo(&mut self, ui: &mut egui::Ui, iw: u32, ih: u32, w: u32, h: u32) {
         ui.horizontal(|ui| {
             ui.label("Método");
-            egui::ComboBox::from_id_salt("metodo").selected_text(self.opcoes.metodo.nome()).width(210.0).show_ui(ui, |ui| {
-                for m in Metodo::TODOS {
-                    ui.selectable_value(&mut self.opcoes.metodo, m, m.nome()).on_hover_text(m.dica());
-                }
-            });
+            egui::ComboBox::from_id_salt("metodo")
+                .selected_text(self.opcoes.metodo.nome())
+                .width(210.0)
+                .show_ui(ui, |ui| {
+                    for m in Metodo::TODOS {
+                        ui.selectable_value(&mut self.opcoes.metodo, m, m.nome())
+                            .on_hover_text(m.dica());
+                    }
+                });
         });
         ui.weak(self.opcoes.metodo.dica());
         let ampliando = w > iw || h > ih;
-        if ampliando && iw.max(ih) <= 256 && !matches!(self.opcoes.metodo, Metodo::Vizinho | Metodo::PixelArt) {
+        if ampliando
+            && iw.max(ih) <= 256
+            && !matches!(self.opcoes.metodo, Metodo::Vizinho | Metodo::PixelArt)
+        {
             ui.weak("Dica: se for pixel art ou ícone, \"Vizinho\" ou \"Pixel art\" ficam nítidos.");
         }
         let suave = !matches!(self.opcoes.metodo, Metodo::Vizinho | Metodo::PixelArt);
@@ -957,18 +1117,35 @@ impl App {
         });
     }
 
-    fn botao_reamostrar(&mut self, ui: &mut egui::Ui, iw: u32, ih: u32, w: u32, h: u32, nome: &str) {
+    fn botao_reamostrar(
+        &mut self,
+        ui: &mut egui::Ui,
+        iw: u32,
+        ih: u32,
+        w: u32,
+        h: u32,
+        nome: &str,
+    ) {
         let mp = w as f64 * h as f64 / 1e6;
         let grande = mp > LIMITE_MEGAPIXELS;
         if grande {
-            ui.colored_label(Color32::from_rgb(240, 110, 90), format!("Grande demais ({mp:.0} MP; limite {LIMITE_MEGAPIXELS:.0} MP)."));
+            ui.colored_label(
+                Color32::from_rgb(240, 110, 90),
+                format!("Grande demais ({mp:.0} MP; limite {LIMITE_MEGAPIXELS:.0} MP)."),
+            );
         }
         ui.add_space(4.0);
         let igual = (w, h) == (iw, ih);
-        let botao = ui.add_enabled(!igual && !grande, egui::Button::new(format!("✔ Aplicar ({w} × {h})")).min_size(vec2(200.0, 28.0)));
+        let botao = ui.add_enabled(
+            !igual && !grande,
+            egui::Button::new(format!("✔ Aplicar ({w} × {h})")).min_size(vec2(200.0, 28.0)),
+        );
         if botao.clicked() {
             let op = self.opcoes;
-            let desc = format!("{nome} ({})", op.metodo.nome().split(" (").next().unwrap_or(""));
+            let desc = format!(
+                "{nome} ({})",
+                op.metodo.nome().split(" (").next().unwrap_or("")
+            );
             let ctx = ui.ctx().clone();
             self.em_segundo_plano(&ctx, desc, move |img| ops::redimensionar(img, w, h, op));
         }
@@ -988,13 +1165,24 @@ impl App {
         // imagem maior que a GPU aceita: mostra uma prévia reduzida (o arquivo continua inteiro)
         let previa = if w.max(h) > max {
             let f = max as f64 / w.max(h) as f64;
-            let (pw, ph) = (((w as f64 * f) as u32).max(1), ((h as f64 * f) as u32).max(1));
-            let op = Opcoes { metodo: Metodo::Bilinear, ..Default::default() };
-            ops::redimensionar(&doc.img, pw, ph, op).unwrap_or_else(|_| doc.img.thumbnail(pw, ph)).to_rgba8()
+            let (pw, ph) = (
+                ((w as f64 * f) as u32).max(1),
+                ((h as f64 * f) as u32).max(1),
+            );
+            let op = Opcoes {
+                metodo: Metodo::Bilinear,
+                ..Default::default()
+            };
+            ops::redimensionar(&doc.img, pw, ph, op)
+                .unwrap_or_else(|_| doc.img.thumbnail(pw, ph))
+                .to_rgba8()
         } else {
             doc.img.to_rgba8()
         };
-        let ci = ColorImage::from_rgba_unmultiplied([previa.width() as usize, previa.height() as usize], &previa);
+        let ci = ColorImage::from_rgba_unmultiplied(
+            [previa.width() as usize, previa.height() as usize],
+            &previa,
+        );
         // ampliado: pixels nítidos (vê o pixel real); reduzido: mipmap suave
         let opcoes = TextureOptions {
             magnification: egui::TextureFilter::Nearest,
@@ -1023,7 +1211,12 @@ impl App {
                 Color32::from_gray(140),
             );
             if arquivos_sobre {
-                painter.rect_stroke(area.shrink(8.0), 8.0, Stroke::new(3.0, Color32::from_rgb(90, 160, 255)), StrokeKind::Inside);
+                painter.rect_stroke(
+                    area.shrink(8.0),
+                    8.0,
+                    Stroke::new(3.0, Color32::from_rgb(90, 160, 255)),
+                    StrokeKind::Inside,
+                );
             }
             return;
         };
@@ -1071,12 +1264,22 @@ impl App {
             if resp.drag_started_by(egui::PointerButton::Primary)
                 && let Some(inicio) = ui.input(|i| i.pointer.press_origin())
             {
-                let alca = self.sel.and_then(|s| achar_alca(Rect::from_min_max(para_tela(s.min), para_tela(s.max)), inicio));
+                let alca = self.sel.and_then(|s| {
+                    achar_alca(
+                        Rect::from_min_max(para_tela(s.min), para_tela(s.max)),
+                        inicio,
+                    )
+                });
                 let p = para_img(inicio);
                 self.arrasto = Some(match (alca, self.sel) {
-                    (Some(a), Some(s)) => Arrasto::Alca { alca: a, inicial: s },
+                    (Some(a), Some(s)) => Arrasto::Alca {
+                        alca: a,
+                        inicial: s,
+                    },
                     (None, Some(s)) if s.contains(p) => Arrasto::Mover { desloc: p - s.min },
-                    _ => Arrasto::Nova { ancora: pos2(p.x.clamp(0.0, tam.x), p.y.clamp(0.0, tam.y)) },
+                    _ => Arrasto::Nova {
+                        ancora: pos2(p.x.clamp(0.0, tam.x), p.y.clamp(0.0, tam.y)),
+                    },
                 });
             }
             if resp.dragged_by(egui::PointerButton::Primary)
@@ -1086,7 +1289,10 @@ impl App {
             }
             if resp.drag_stopped() {
                 self.arrasto = None;
-                if self.sel.is_some_and(|s| s.width() < 1.0 || s.height() < 1.0) {
+                if self
+                    .sel
+                    .is_some_and(|s| s.width() < 1.0 || s.height() < 1.0)
+                {
                     self.sel = None;
                 }
             }
@@ -1105,20 +1311,27 @@ impl App {
             // cursor conforme o que está embaixo
             if let Some(h) = resp.hover_pos() {
                 let cursor = match self.sel {
-                    Some(s) => match achar_alca(Rect::from_min_max(para_tela(s.min), para_tela(s.max)), h) {
-                        Some(Alca { x: 0, .. }) => CursorIcon::ResizeVertical,
-                        Some(Alca { y: 0, .. }) => CursorIcon::ResizeHorizontal,
-                        Some(Alca { x, y }) if x == y => CursorIcon::ResizeNwSe,
-                        Some(_) => CursorIcon::ResizeNeSw,
-                        None if s.contains(para_img(h)) => CursorIcon::Move,
-                        None => CursorIcon::Crosshair,
-                    },
+                    Some(s) => {
+                        match achar_alca(Rect::from_min_max(para_tela(s.min), para_tela(s.max)), h)
+                        {
+                            Some(Alca { x: 0, .. }) => CursorIcon::ResizeVertical,
+                            Some(Alca { y: 0, .. }) => CursorIcon::ResizeHorizontal,
+                            Some(Alca { x, y }) if x == y => CursorIcon::ResizeNwSe,
+                            Some(_) => CursorIcon::ResizeNeSw,
+                            None if s.contains(para_img(h)) => CursorIcon::Move,
+                            None => CursorIcon::Crosshair,
+                        }
+                    }
                     None => CursorIcon::Crosshair,
                 };
                 ui.ctx().set_cursor_icon(cursor);
             }
         } else if resp.hovered() {
-            ui.ctx().set_cursor_icon(if resp.dragged() { CursorIcon::Grabbing } else { CursorIcon::Grab });
+            ui.ctx().set_cursor_icon(if resp.dragged() {
+                CursorIcon::Grabbing
+            } else {
+                CursorIcon::Grab
+            });
         }
 
         // fundo xadrez (transparência) só na parte visível
@@ -1134,16 +1347,29 @@ impl App {
             for yy in y0..y1 {
                 for xx in x0..x1 {
                     if (xx + yy) % 2 != 0 {
-                        let r = Rect::from_min_size(ret_img.min + vec2(xx as f32 * q, yy as f32 * q), vec2(q, q));
+                        let r = Rect::from_min_size(
+                            ret_img.min + vec2(xx as f32 * q, yy as f32 * q),
+                            vec2(q, q),
+                        );
                         painter.rect_filled(r.intersect(visivel), CornerRadius::ZERO, c2);
                     }
                 }
             }
         }
         if let Some(t) = &self.textura {
-            painter.image(t.id(), ret_img, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+            painter.image(
+                t.id(),
+                ret_img,
+                Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+                Color32::WHITE,
+            );
         }
-        painter.rect_stroke(ret_img, CornerRadius::ZERO, Stroke::new(1.0, Color32::from_gray(70)), StrokeKind::Outside);
+        painter.rect_stroke(
+            ret_img,
+            CornerRadius::ZERO,
+            Stroke::new(1.0, Color32::from_gray(70)),
+            StrokeKind::Outside,
+        );
 
         // grade de pixels quando bem ampliado
         if zoom >= 12.0 && visivel.is_positive() {
@@ -1154,11 +1380,17 @@ impl App {
             let py1 = ((visivel.max.y - origem.y) / zoom).ceil() as i64;
             for x in px0..=px1 {
                 let sx = origem.x + x as f32 * zoom;
-                painter.line_segment([pos2(sx, visivel.min.y), pos2(sx, visivel.max.y)], Stroke::new(1.0, cor));
+                painter.line_segment(
+                    [pos2(sx, visivel.min.y), pos2(sx, visivel.max.y)],
+                    Stroke::new(1.0, cor),
+                );
             }
             for y in py0..=py1 {
                 let sy = origem.y + y as f32 * zoom;
-                painter.line_segment([pos2(visivel.min.x, sy), pos2(visivel.max.x, sy)], Stroke::new(1.0, cor));
+                painter.line_segment(
+                    [pos2(visivel.min.x, sy), pos2(visivel.max.x, sy)],
+                    Stroke::new(1.0, cor),
+                );
             }
         }
 
@@ -1166,7 +1398,10 @@ impl App {
         if self.ferramenta == Ferramenta::Recortar
             && let Some((x, y, w, h)) = self.sel_final()
         {
-            let s = Rect::from_min_max(para_tela(pos2(x as f32, y as f32)), para_tela(pos2((x + w) as f32, (y + h) as f32)));
+            let s = Rect::from_min_max(
+                para_tela(pos2(x as f32, y as f32)),
+                para_tela(pos2((x + w) as f32, (y + h) as f32)),
+            );
             let escuro = Color32::from_black_alpha(150);
             let r = ret_img;
             for parte in [
@@ -1187,35 +1422,65 @@ impl App {
                 painter.line_segment([pos2(gx, s.min.y), pos2(gx, s.max.y)], guia);
                 painter.line_segment([pos2(s.min.x, gy), pos2(s.max.x, gy)], guia);
             }
-            painter.rect_stroke(s, CornerRadius::ZERO, Stroke::new(3.0, Color32::from_black_alpha(160)), StrokeKind::Middle);
-            painter.rect_stroke(s, CornerRadius::ZERO, Stroke::new(1.0, Color32::WHITE), StrokeKind::Middle);
+            painter.rect_stroke(
+                s,
+                CornerRadius::ZERO,
+                Stroke::new(3.0, Color32::from_black_alpha(160)),
+                StrokeKind::Middle,
+            );
+            painter.rect_stroke(
+                s,
+                CornerRadius::ZERO,
+                Stroke::new(1.0, Color32::WHITE),
+                StrokeKind::Middle,
+            );
             for p in pontos_alcas(s) {
                 let q = Rect::from_center_size(p, vec2(9.0, 9.0));
                 painter.rect_filled(q, CornerRadius::ZERO, Color32::WHITE);
-                painter.rect_stroke(q, CornerRadius::ZERO, Stroke::new(1.0, Color32::BLACK), StrokeKind::Inside);
+                painter.rect_stroke(
+                    q,
+                    CornerRadius::ZERO,
+                    Stroke::new(1.0, Color32::BLACK),
+                    StrokeKind::Inside,
+                );
             }
             let rotulo = format!("{w} × {h}");
             let pos = pos2(s.min.x, (s.min.y - 6.0).max(area.min.y + 16.0));
-            let galeria = painter.layout_no_wrap(rotulo, egui::FontId::proportional(13.0), Color32::WHITE);
-            let fundo = Rect::from_min_size(pos - vec2(0.0, galeria.size().y), galeria.size()).expand(3.0);
+            let galeria =
+                painter.layout_no_wrap(rotulo, egui::FontId::proportional(13.0), Color32::WHITE);
+            let fundo =
+                Rect::from_min_size(pos - vec2(0.0, galeria.size().y), galeria.size()).expand(3.0);
             painter.rect_filled(fundo, 3.0, Color32::from_black_alpha(190));
             painter.galley(fundo.min + vec2(3.0, 3.0), galeria, Color32::WHITE);
         }
 
         if arquivos_sobre {
-            painter.rect_stroke(area.shrink(8.0), 8.0, Stroke::new(3.0, Color32::from_rgb(90, 160, 255)), StrokeKind::Inside);
+            painter.rect_stroke(
+                area.shrink(8.0),
+                8.0,
+                Stroke::new(3.0, Color32::from_rgb(90, 160, 255)),
+                StrokeKind::Inside,
+            );
         }
 
         // coordenada sob o cursor (para a barra de status)
-        let sob = resp.hover_pos().map(para_img).filter(|p| p.x >= 0.0 && p.y >= 0.0 && p.x < tam.x && p.y < tam.y);
-        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::unique("cursor_px"), sob));
+        let sob = resp
+            .hover_pos()
+            .map(para_img)
+            .filter(|p| p.x >= 0.0 && p.y >= 0.0 && p.x < tam.x && p.y < tam.y);
+        ui.ctx()
+            .data_mut(|d| d.insert_temp(egui::Id::unique("cursor_px"), sob));
     }
 
     fn barra_status(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             if let Some(t) = &self.tarefa {
                 ui.spinner();
-                ui.label(format!("{}… {:.1} s", t.descricao, t.inicio.elapsed().as_secs_f32()));
+                ui.label(format!(
+                    "{}… {:.1} s",
+                    t.descricao,
+                    t.inicio.elapsed().as_secs_f32()
+                ));
             } else {
                 ui.label(&self.status);
             }
@@ -1231,7 +1496,10 @@ impl App {
                     self.ajustar_pendente = true;
                 }
                 ui.label(format!("zoom {:.0}%", self.zoom * 100.0));
-                let sob: Option<Pos2> = ui.ctx().data(|d| d.get_temp(egui::Id::unique("cursor_px"))).flatten();
+                let sob: Option<Pos2> = ui
+                    .ctx()
+                    .data(|d| d.get_temp(egui::Id::unique("cursor_px")))
+                    .flatten();
                 if let Some(p) = sob {
                     ui.weak(format!("x {} · y {}", p.x as u32, p.y as u32));
                 }
@@ -1252,7 +1520,11 @@ impl eframe::App for App {
 
         // título da janela
         let titulo = match &self.doc {
-            Some(d) => format!("{}{} — Recorta", if d.modificado { "• " } else { "" }, d.nome()),
+            Some(d) => format!(
+                "{}{} — Recorta",
+                if d.modificado { "• " } else { "" },
+                d.nome()
+            ),
             None => "Recorta".into(),
         };
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(titulo));
@@ -1274,7 +1546,9 @@ impl eframe::App for App {
             .show(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| self.painel(ui));
             });
-        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| self.canvas(ui));
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show(ui, |ui| self.canvas(ui));
 
         if self.confirmar_fechar {
             let modal = egui::Modal::new(egui::Id::unique("fechar")).show(&ctx, |ui| {
@@ -1311,14 +1585,31 @@ impl eframe::App for App {
 // Geometria da seleção
 
 fn pontos_alcas(s: Rect) -> impl Iterator<Item = Pos2> {
-    [(-1, -1), (0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0)]
-        .into_iter()
-        .map(move |(x, y)| ponto_alca(s, Alca { x, y }))
+    [
+        (-1, -1),
+        (0, -1),
+        (1, -1),
+        (1, 0),
+        (1, 1),
+        (0, 1),
+        (-1, 1),
+        (-1, 0),
+    ]
+    .into_iter()
+    .map(move |(x, y)| ponto_alca(s, Alca { x, y }))
 }
 
 fn ponto_alca(s: Rect, a: Alca) -> Pos2 {
-    let x = match a.x { -1 => s.min.x, 0 => s.center().x, _ => s.max.x };
-    let y = match a.y { -1 => s.min.y, 0 => s.center().y, _ => s.max.y };
+    let x = match a.x {
+        -1 => s.min.x,
+        0 => s.center().x,
+        _ => s.max.x,
+    };
+    let y = match a.y {
+        -1 => s.min.y,
+        0 => s.center().y,
+        _ => s.max.y,
+    };
     pos2(x, y)
 }
 
@@ -1327,7 +1618,16 @@ fn achar_alca(s: Rect, p: Pos2) -> Option<Alca> {
     let raio = 9.0;
     let mut melhor = None;
     let mut dist = f32::MAX;
-    for (x, y) in [(-1, -1), (1, -1), (1, 1), (-1, 1), (0, -1), (1, 0), (0, 1), (-1, 0)] {
+    for (x, y) in [
+        (-1, -1),
+        (1, -1),
+        (1, 1),
+        (-1, 1),
+        (0, -1),
+        (1, 0),
+        (0, 1),
+        (-1, 0),
+    ] {
         let a = Alca { x, y };
         let d = ponto_alca(s, a).distance(p);
         if d <= raio && d < dist - 0.5 {
@@ -1365,7 +1665,11 @@ fn ret_ancora(a: Pos2, p: Pos2, razao: Option<f32>, lim: Vec2) -> Rect {
     let mut h = (p.y - a.y).abs();
     if let Some(r) = razao {
         // cresce até cobrir o ponteiro, depois encolhe se passar da borda
-        if w / r > h { h = w / r } else { w = h * r }
+        if w / r > h {
+            h = w / r
+        } else {
+            w = h * r
+        }
         if w > 0.0 && h > 0.0 {
             let s = (maxw / w).min(maxh / h).min(1.0);
             w *= s;
