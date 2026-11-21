@@ -7,6 +7,7 @@
 mod ops;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::Instant;
 
@@ -56,24 +57,39 @@ fn main() -> eframe::Result {
         renderer,
         ..Default::default()
     };
-    let resultado = eframe::run_native(
-        "recorta",
-        opcoes,
-        Box::new(move |cc| Ok(Box::new(App::new(cc, arquivo)))),
-    );
+    let rodar = move || {
+        eframe::run_native(
+            "recorta",
+            opcoes,
+            Box::new(move |cc| Ok(Box::new(App::new(cc, arquivo)))),
+        )
+    };
+    // Windows: o wgpu às vezes não dá erro, dá panic, ao montar o renderer (ex.: Wine,
+    // cujo compilador de shader não tem o shader model 5.1). O winit captura o panic
+    // dentro do loop de eventos e o relança quando run_native volta, então dá para
+    // pegá-lo aqui. Só vira fallback se a janela nunca chegou a desenhar um quadro;
+    // depois disso é bug do programa e o panic segue normalmente.
+    #[cfg(windows)]
+    let resultado = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(rodar)) {
+        Ok(r) => r,
+        Err(panico) => {
+            if deve_reabrir_com_glow(forcado.as_deref(), JANELA_OK.load(Ordering::Relaxed))
+                && reabrir_com_glow()
+            {
+                std::process::exit(0);
+            }
+            std::panic::resume_unwind(panico)
+        }
+    };
+    #[cfg(not(windows))]
+    let resultado = rodar();
 
     if let Err(erro) = &resultado {
         // A janela não abriu (driver de vídeo sem suporte ao backend). O winit não deixa
         // recriar o loop de eventos no mesmo processo, então reabre o programa com OpenGL.
         #[cfg(windows)]
-        if forcado.is_none()
-            && let Ok(exe) = std::env::current_exe()
-            && let Ok(status) = std::process::Command::new(exe)
-                .args(std::env::args_os().skip(1))
-                .env(VAR_RENDERER, "glow")
-                .status()
-        {
-            std::process::exit(status.code().unwrap_or(1));
+        if deve_reabrir_com_glow(forcado.as_deref(), false) && reabrir_com_glow() {
+            std::process::exit(0);
         }
         let msg = format!(
             "O Recorta não conseguiu abrir a janela:\n\n{erro}\n\n\
@@ -93,6 +109,31 @@ fn main() -> eframe::Result {
 
 /// Variável de ambiente para forçar o backend gráfico: `glow` (OpenGL) ou `wgpu` (só Windows).
 const VAR_RENDERER: &str = "RECORTA_RENDERER";
+
+/// Vira `true` quando a janela já desenhou o primeiro quadro: a partir daí o backend
+/// gráfico funciona e um panic não é mais motivo para tentar outro.
+static JANELA_OK: AtomicBool = AtomicBool::new(false);
+
+/// Falha do backend padrão antes do primeiro quadro → tentar de novo com OpenGL.
+/// Se o usuário escolheu o backend (variável de ambiente), respeita e não troca.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn deve_reabrir_com_glow(forcado: Option<&str>, janela_ok: bool) -> bool {
+    forcado.is_none() && !janela_ok
+}
+
+/// Inicia o programa de novo, com os mesmos argumentos e `RECORTA_RENDERER=glow`.
+/// Não espera: quem chamou sai em seguida, sem ficar com a janela que falhou (e a
+/// memória do wgpu) presa enquanto o novo processo roda. `false` se não deu para iniciar.
+#[cfg(windows)]
+fn reabrir_com_glow() -> bool {
+    std::env::current_exe().is_ok_and(|exe| {
+        std::process::Command::new(exe)
+            .args(std::env::args_os().skip(1))
+            .env(VAR_RENDERER, "glow")
+            .spawn()
+            .is_ok()
+    })
+}
 /// Windows: wgpu (DirectX 12, com fallback por software). Linux: OpenGL, que funciona
 /// até com drivers Mesa antigos.
 #[cfg(windows)]
@@ -1546,6 +1587,12 @@ impl App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        // o quadro 0 é desenhado depois deste ui(); no próximo, o backend já provou que funciona
+        if ctx.cumulative_frame_nr() == 0 {
+            ctx.request_repaint();
+        } else if !JANELA_OK.load(Ordering::Relaxed) {
+            JANELA_OK.store(true, Ordering::Relaxed);
+        }
         self.checar_tarefa();
         self.atalhos(&ctx);
         self.atualizar_textura(&ctx);
@@ -1842,6 +1889,17 @@ fn decodificar_url(s: &str) -> String {
 #[cfg(test)]
 mod testes {
     use super::*;
+
+    #[test]
+    fn fallback_para_glow_so_antes_do_primeiro_quadro_e_sem_escolha_do_usuario() {
+        // backend padrão falhou ao abrir: tenta OpenGL
+        assert!(deve_reabrir_com_glow(None, false));
+        // já desenhou: panic é bug do programa, não do backend
+        assert!(!deve_reabrir_com_glow(None, true));
+        // usuário escolheu o backend: respeita (e evita loop glow → glow)
+        assert!(!deve_reabrir_com_glow(Some("glow"), false));
+        assert!(!deve_reabrir_com_glow(Some("wgpu"), false));
+    }
 
     #[test]
     fn ancora_respeita_proporcao_e_borda() {
