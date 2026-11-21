@@ -4,7 +4,7 @@
 //! Redimensionar usa `fast_image_resize` (SIMD), com alfa pré-multiplicado
 //! para não criar bordas escuras em áreas transparentes.
 
-use std::io::Cursor;
+use std::io::{Cursor, Write};
 use std::path::Path;
 
 use fast_image_resize as fr;
@@ -153,11 +153,16 @@ pub fn salvar(img: &DynamicImage, caminho: &Path, qualidade_jpeg: u8) -> Result<
             .unwrap_or("img")
     ));
     let gravar = || -> std::io::Result<()> {
-        std::fs::write(&tmp, &bytes)?;
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(&bytes)?;
         // mantém as permissões do arquivo que está sendo substituído
         if let Ok(meta) = std::fs::metadata(&destino) {
-            std::fs::set_permissions(&tmp, meta.permissions())?;
+            f.set_permissions(meta.permissions())?;
         }
+        // dados no disco antes do rename: sem isso, queda de energia logo depois
+        // pode deixar o destino vazio/truncado (o rename chega antes dos dados)
+        f.sync_all()?;
+        drop(f);
         std::fs::rename(&tmp, &destino)
     };
     gravar().map_err(|e| {
