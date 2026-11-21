@@ -446,8 +446,11 @@ impl App {
                 })
             }
         };
-        let Some(destino) = destino else { return };
-        let doc = self.doc.as_mut().expect("doc existe");
+        // o empréstimo de leitura acabou; o doc só some se alguém mexer no estado
+        // durante o diálogo (não acontece hoje), e aí não há o que salvar
+        let (Some(destino), Some(doc)) = (destino, self.doc.as_mut()) else {
+            return;
+        };
         match ops::salvar(&doc.img, &destino, self.qualidade_jpeg) {
             Ok(()) => {
                 let tam = std::fs::metadata(&destino).map(|m| m.len()).unwrap_or(0);
