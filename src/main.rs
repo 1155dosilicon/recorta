@@ -191,6 +191,9 @@ struct Tarefa {
     rx: mpsc::Receiver<Result<DynamicImage, String>>,
     descricao: String,
     inicio: Instant,
+    /// Imagem de onde a operação partiu: se o documento mudou nesse meio-tempo,
+    /// o resultado é de uma imagem que já não está na tela e é descartado.
+    base: Arc<DynamicImage>,
 }
 
 struct App {
@@ -226,7 +229,16 @@ impl App {
         cc.egui_ctx.set_theme(egui::Theme::Dark);
         cc.egui_ctx
             .all_styles_mut(|s| s.interaction.selectable_labels = false);
-        let mut app = App {
+        let mut app = App::vazio();
+        if let Some(p) = arquivo {
+            app.abrir(&p);
+        }
+        app
+    }
+
+    /// Estado inicial, sem depender do contexto do egui (usado também nos testes).
+    fn vazio() -> Self {
+        App {
             doc: None,
             textura: None,
             textura_suja: false,
@@ -249,11 +261,7 @@ impl App {
             tarefa: None,
             confirmar_fechar: false,
             pode_fechar: false,
-        };
-        if let Some(p) = arquivo {
-            app.abrir(&p);
         }
-        app
     }
 
     // ---- documento ----------------------------------------------------------
@@ -354,7 +362,8 @@ impl App {
         if self.tarefa.is_some() {
             return;
         }
-        let img = doc.img.clone();
+        let img = Arc::clone(&doc.img);
+        let base = Arc::clone(&doc.img);
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
@@ -366,20 +375,34 @@ impl App {
             rx,
             descricao,
             inicio: Instant::now(),
+            base,
         });
     }
 
     fn checar_tarefa(&mut self) {
-        let Some(t) = &self.tarefa else { return };
+        let Some(t) = self.tarefa.take() else { return };
         let resultado = match t.rx.try_recv() {
             Ok(r) => r,
-            Err(mpsc::TryRecvError::Empty) => return,
+            Err(mpsc::TryRecvError::Empty) => {
+                self.tarefa = Some(t);
+                return;
+            }
             Err(mpsc::TryRecvError::Disconnected) => {
                 Err("a operação travou (falta de memória?)".into())
             }
         };
-        let t = self.tarefa.take().expect("tarefa existe");
+        let mesma_imagem = self
+            .doc
+            .as_ref()
+            .is_some_and(|d| Arc::ptr_eq(&d.img, &t.base));
         match resultado {
+            // aplicar agora jogaria fora o que foi feito na imagem nesse meio-tempo
+            Ok(_) if !mesma_imagem => {
+                self.status = format!(
+                    "{} descartado: a imagem mudou enquanto a operação rodava.",
+                    t.descricao
+                );
+            }
             Ok(img) => {
                 let seg = t.inicio.elapsed().as_secs_f32();
                 self.aplicar(img, t.descricao);
@@ -550,6 +573,10 @@ impl App {
     }
 
     fn aplicar_recorte(&mut self) {
+        // o botão e o Enter já ficam bloqueados; isto cobre o duplo clique na seleção
+        if self.tarefa.is_some() {
+            return;
+        }
         let Some((x, y, w, h)) = self.sel_final() else {
             return;
         };
@@ -1830,6 +1857,63 @@ mod testes {
         let r = arrastar_alca(Alca { x: 1, y: 0 }, ini, pos2(190.0, 50.0), Some(1.0), lim);
         assert!((r.width() - r.height()).abs() < 1e-3);
         assert!(r.min.y >= 0.0 && r.max.y <= 100.0);
+    }
+
+    fn app_com_imagem(w: u32, h: u32) -> App {
+        let mut app = App::vazio();
+        app.novo_doc(DynamicImage::new_rgba8(w, h), None);
+        app
+    }
+
+    /// Simula `em_segundo_plano` sem thread: a tarefa parte da imagem atual.
+    fn tarefa_pendente(app: &mut App) -> mpsc::Sender<Result<DynamicImage, String>> {
+        let (tx, rx) = mpsc::channel();
+        let base = Arc::clone(&app.doc.as_ref().unwrap().img);
+        app.tarefa = Some(Tarefa {
+            rx,
+            descricao: "Escala".into(),
+            inicio: Instant::now(),
+            base,
+        });
+        tx
+    }
+
+    #[test]
+    fn recorte_por_duplo_clique_espera_a_tarefa() {
+        // antes: o duplo clique recortava durante a escala e o resultado da escala
+        // (feito a partir da imagem sem recorte) sobrescrevia o recorte
+        let mut app = app_com_imagem(100, 80);
+        let tx = tarefa_pendente(&mut app);
+        app.sel = Some(Rect::from_min_size(pos2(10.0, 10.0), vec2(30.0, 20.0)));
+        app.aplicar_recorte();
+        assert_eq!(app.doc.as_ref().unwrap().tam(), (100, 80));
+
+        tx.send(Ok(DynamicImage::new_rgba8(200, 160))).unwrap();
+        app.checar_tarefa();
+        assert!(app.tarefa.is_none());
+        assert_eq!(app.doc.as_ref().unwrap().tam(), (200, 160));
+    }
+
+    #[test]
+    fn resultado_de_imagem_que_mudou_e_descartado() {
+        let mut app = app_com_imagem(100, 80);
+        let tx = tarefa_pendente(&mut app);
+        // qualquer outro caminho que troque a imagem durante a tarefa
+        app.aplicar(DynamicImage::new_rgba8(50, 40), "Recorte".into());
+
+        tx.send(Ok(DynamicImage::new_rgba8(200, 160))).unwrap();
+        app.checar_tarefa();
+        assert!(app.tarefa.is_none());
+        assert_eq!(app.doc.as_ref().unwrap().tam(), (50, 40));
+        assert!(app.status.contains("descartado"), "{}", app.status);
+    }
+
+    #[test]
+    fn tarefa_em_andamento_continua_pendente() {
+        let mut app = app_com_imagem(10, 10);
+        let _tx = tarefa_pendente(&mut app);
+        app.checar_tarefa();
+        assert!(app.tarefa.is_some());
     }
 
     #[test]
